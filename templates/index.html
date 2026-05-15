@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NimbusBoard Workspace</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f8;
+            color: #333;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .panel-container {
+            background-color: #ffffff;
+            width: 100%;
+            max-width: 450px;
+            padding: 30px;
+            border-radius: 6px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.06);
+            border-top: 5px solid #0056b3;
+            box-sizing: border-box;
+        }
+        h2 { margin-top: 0; color: #1a1a1a; font-size: 20px; text-align: center; }
+        .subtitle { font-size: 13px; color: #666; text-align: center; margin-bottom: 20px; }
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #dcdcdc;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover { background-color: #004494; }
+        #chat-interface { display: none; }
+        .chat-history {
+            height: 350px;
+            background-color: #f9f9f9;
+            border: 1px solid #eaeaea;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-y: auto;
+            margin-bottom: 15px;
+        }
+        .msg-line { margin-bottom: 12px; font-size: 14px; line-height: 1.4; }
+        .author-tag { font-weight: 600; }
+        .error-msg { color: #dc3545; text-align: center; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="panel-container" id="auth-panel">
+        <h2>Acceso a Sala</h2>
+        <div class="subtitle">Identificación requerida para sesión temporal</div>
+        <p id="error-status" class="error-msg">SALA EXPIRADA O INEXISTENTE</p>
+        <input type="text" id="username" placeholder="Ingrese su nombre asignado" autocomplete="off">
+        <button onclick="iniciarSesion()">Establecer Conexión</button>
+    </div>
+
+    <div class="panel-container" id="chat-interface">
+        <h2>NimbusBoard Sync</h2>
+        <div class="chat-history" id="chat-history"></div>
+        <input type="text" id="msg-input" placeholder="Escriba su mensaje..." autocomplete="off">
+        <button onclick="transmitirMensaje()">Enviar Comunicación</button>
+    </div>
+
+    <script>
+        // PEGA AQUÍ TU URL GENERADA EN GOOGLE APPS SCRIPT
+        const APPS_SCRIPT_URL = 'URL_DE_TU_APPS_SCRIPT_AQUI';
+        
+        let usuarioLocal = '';
+        let idSala = new URLSearchParams(window.location.search).get('sala');
+
+        function encriptarDatos(texto) {
+            return btoa(unescape(encodeURIComponent(texto))).split('').reverse().join('') + "Z1";
+        }
+        function desencriptarDatos(cifrado) {
+            try {
+                let bloque = cifrado.slice(0, -2).split('').reverse().join('');
+                return decodeURIComponent(escape(atob(bloque)));
+            } catch(e) { return "[Bloque cifrado ilegible]"; }
+        }
+
+        async function iniciarSesion() {
+            usuarioLocal = document.getElementById('username').value.trim();
+            if (!usuarioLocal || !idSala) return alert("Parámetros de conexión inválidos.");
+            
+            document.getElementById('auth-panel').style.display = 'none';
+            document.getElementById('chat-interface').style.display = 'block';
+            
+            setInterval(sincronizarSala, 2500);
+            sincronizarSala();
+        }
+
+        async function transmitirMensaje() {
+            const input = document.getElementById('msg-input');
+            const texto = input.value.trim();
+            if(!texto) return;
+
+            const textoProtegido = encriptarDatos(texto);
+            input.value = ''; 
+
+            pintarMensaje(usuarioLocal, texto);
+
+            const formData = new URLSearchParams();
+            formData.append('action', 'save');
+            formData.append('sala', idSala);
+            formData.append('usuario', usuarioLocal);
+            formData.append('mensaje', textoProtegido);
+
+            fetch(APPS_SCRIPT_URL, { method: 'POST', body: formData });
+        }
+
+        async function sincronizarSala() {
+            const formData = new URLSearchParams();
+            formData.append('action', 'get');
+            formData.append('sala', idSala);
+
+            const response = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: formData });
+            const data = await response.json();
+            
+            if(data.error === "SALA_EXPIRADA") {
+                document.getElementById('chat-interface').style.display = 'none';
+                document.getElementById('auth-panel').style.display = 'block';
+                document.getElementById('error-status').style.display = 'block';
+                return;
+            }
+
+            const cajaChat = document.getElementById('chat-history');
+            cajaChat.innerHTML = ''; 
+
+            data.forEach(item => {
+                const textoPlano = desencriptarDatos(item.mensaje);
+                pintarMensaje(item.usuario, textoPlano);
+            });
+        }
+
+        function pintarMensaje(autor, texto) {
+            const cajaChat = document.getElementById('chat-history');
+            const colorAutor = autor === usuarioLocal ? '#0056b3' : '#333333';
+            cajaChat.innerHTML += `<div class="msg-line"><span class="author-tag" style="color: ${colorAutor};">${autor}:</span> ${texto}</div>`;
+            cajaChat.scrollTop = cajaChat.scrollHeight;
+        }
+    </script>
+</body>
+</html>
