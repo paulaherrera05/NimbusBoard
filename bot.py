@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# Configuración de variables desde el panel de Render
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 APPS_SCRIPT_URL = os.getenv('APPS_SCRIPT_URL')
 URL_BASE = os.getenv('URL_BASE')
@@ -19,7 +20,8 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 # ==========================================
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Inyectamos la URL de la base de datos directamente al HTML
+    return render_template('index.html', link_base_datos=APPS_SCRIPT_URL)
 
 @app.route('/api/crear', methods=['POST'])
 def api_crear():
@@ -28,23 +30,20 @@ def api_crear():
     sala_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     
     try:
-        # Petición a Google Apps Script
         payload = {'action': 'create_room', 'sala': sala_id, 'horas': horas}
         requests.post(APPS_SCRIPT_URL, data=payload)
-        
         enlace_final = f"{URL_BASE}/?sala={sala_id}"
         return jsonify({"exito": True, "link": enlace_final, "sala": sala_id})
     except Exception as e:
         return jsonify({"exito": False, "error": str(e)}), 500
 
 # ==========================================
-# LÓGICA DEL BOT DE TELEGRAM
+# LÓGICA DEL BOT DE TELEGRAM (INTERACTIVO)
 # ==========================================
 @bot.message_handler(commands=['start', 'menu'])
 def menu_principal(message):
     markup = InlineKeyboardMarkup()
-    btn_crear = InlineKeyboardButton("🏢 Crear Nueva Sala", callback_data="accion_crear")
-    markup.add(btn_crear)
+    markup.add(InlineKeyboardButton("🏢 Crear Nueva Sala", callback_data="accion_crear"))
     bot.send_message(message.chat.id, "Bienvenido a *NimbusBoard Workspace*.\nSeleccione una acción:", parse_mode="Markdown", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "accion_crear")
@@ -53,7 +52,7 @@ def seleccionar_tiempo(call):
     markup.row(InlineKeyboardButton("12 Horas", callback_data="tiempo_12"), InlineKeyboardButton("24 Horas", callback_data="tiempo_24"))
     markup.row(InlineKeyboardButton("48 Horas", callback_data="tiempo_48"), InlineKeyboardButton("72 Horas", callback_data="tiempo_72"))
     markup.add(InlineKeyboardButton("❌ Cancelar", callback_data="volver_inicio"))
-    bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text="⏳ Seleccione el tiempo de caducidad automático:", reply_markup=markup)
+    bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text="⏳ Seleccione el tiempo de caducidad:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("tiempo_"))
 def generar_enlace(call):
@@ -62,17 +61,15 @@ def generar_enlace(call):
     bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text="⚙️ Registrando entorno...")
     
     try:
-        payload = {'action': 'create_room', 'sala': sala_id, 'horas': horas}
-        requests.post(APPS_SCRIPT_URL, data=payload)
-        
+        requests.post(APPS_SCRIPT_URL, data={'action': 'create_room', 'sala': sala_id, 'horas': horas})
         enlace_final = f"{URL_BASE}/?sala={sala_id}"
-        texto_exito = f"✅ *Entorno Generado*\n\n🔑 ID: `{sala_id}`\n⏳ Caducidad: {horas} horas\n🔗 Acceso: {enlace_final}"
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🔙 Volver al Menú", callback_data="volver_inicio"))
-        
-        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=texto_exito, parse_mode="Markdown", reply_markup=markup)
-    except Exception as e:
-        bot.send_message(call.message.chat.id, "⚠️ Error de comunicación con la base de datos.")
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, 
+                              text=f"✅ *Entorno Generado*\n\n🔑 ID: `{sala_id}`\n⏳ Caducidad: {horas} horas\n🔗 Acceso: {enlace_final}", 
+                              parse_mode="Markdown", reply_markup=markup)
+    except:
+        bot.send_message(call.message.chat.id, "⚠️ Error de base de datos.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "volver_inicio")
 def volver_inicio(call):
@@ -82,7 +79,6 @@ def iniciar_bot():
     bot.infinity_polling()
 
 if __name__ == '__main__':
-    hilo_bot = threading.Thread(target=iniciar_bot, daemon=True)
-    hilo_bot.start()
+    threading.Thread(target=iniciar_bot, daemon=True).start()
     puerto = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=puerto)
